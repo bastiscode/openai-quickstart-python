@@ -10,9 +10,8 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-def correct_spelling(text_to_correct: str, temperature: float) -> Tuple[str, float]:
+def correct_spelling(text_to_correct: str, temperature: float) -> str:
     # fix multiple whitespaces
-    start = time.perf_counter()
     text_to_correct = " ".join(text_to_correct.split())
     response = openai.Edit.create(
         engine="text-davinci-edit-001",
@@ -20,9 +19,8 @@ def correct_spelling(text_to_correct: str, temperature: float) -> Tuple[str, flo
         instruction="Fix the spelling mistakes",
         temperature=temperature
     )
-    end = time.perf_counter()
     correction = " ".join(response["choices"][0]["text"].split())
-    return correction, end - start
+    return correction
 
 
 def parse_args() -> argparse.Namespace:
@@ -32,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text", type=str, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--temperature", type=float, default=0)
     return parser.parse_args()
 
 
@@ -68,35 +67,29 @@ def run(args: argparse.Namespace) -> None:
               f"{len(inputs) - already_processed} left.")
     inputs = inputs[already_processed:]
     total_runtime = 0
-    temperature = 0
     with open(args.out_file, "a" if args.resume else "w", encoding="utf8", buffering=1) as of:
         for i, ipt in enumerate(inputs):
             while True:
+                start = time.perf_counter()
                 try:
-                    correction, runtime = correct_spelling(ipt, temperature)
+                    correction = correct_spelling(ipt, args.temperature)
                 except openai.error.RateLimitError:
                     print("Hit rate limit, trying again in 5s")
                     time.sleep(5)
                     continue
                 except openai.error.OpenAIError as e:
-                    print(f"OpenAI exception for text '{ipt.strip()}':")
+                    print(f"OpenAI exception while correcting text '{ipt.strip()}':")
                     if str(e).startswith("Could not edit text."):
-                        if temperature < 1:
-                            print(f"It seems as if OpenAI could not edit the text with the current temperature setting "
-                                  f"of t={temperature}, increasing it by 0.1 and trying again.")
-                            temperature += 0.1
-                            continue
-                        else:
-                            print(f"OpenAI could not edit the text, but we already tried all temperatures from 0 to 1")
-                            return
+                        print(f"It seems as if OpenAI could not edit the text with the current temperature setting "
+                              f"of t={args.temperature}, keeping the input unchanged.")
+                        correction = ipt
                     else:
                         print(e)
                         return
 
                 of.write(" ".join(correction.split()) + "\n")
-                # reset temperature to zero (argmax sampling) if we have edited the text successfully
-                temperature = 0
-                total_runtime += runtime
+                end = time.perf_counter()
+                total_runtime += end - start
                 break
             print(f"Progress: {i + 1}/{len(inputs)}")
         print(f"Finished correcting {len(inputs)} inputs. "
