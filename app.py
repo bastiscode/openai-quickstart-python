@@ -31,6 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-file", type=str, default=None)
     parser.add_argument("--text", type=str, default=None)
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
 
@@ -40,12 +41,12 @@ def load_text_file(path: str) -> List[str]:
     return lines
 
 
-def save_text_file(path: str, contents: List[str]) -> None:
-    if os.path.dirname(path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf8") as of:
-        for content in contents:
-            of.write(content + "\n")
+def line_count(path: str) -> int:
+    num_lines = 0
+    with open(path, "r", encoding="utf8") as inf:
+        for _ in inf:
+            num_lines += 1
+    return num_lines
 
 
 def run(args: argparse.Namespace) -> None:
@@ -55,33 +56,37 @@ def run(args: argparse.Namespace) -> None:
         return
 
     assert args.in_file is not None and args.out_file is not None, "in-file and out-file arguments must be specified"
-    if os.path.exists(args.out_file) and not args.overwrite:
+    if os.path.exists(args.out_file) and not args.overwrite and not args.resume:
         print(f"Out file at {args.out_file} already exists")
         return
 
     inputs = load_text_file(args.in_file)
     print(f"Got {len(inputs)} inputs to correct")
-    outputs = []
+    already_processed = line_count(args.out_file) if os.path.exists(args.out_file) and args.resume else 0
+    if args.resume:
+        print(f"Resuming correcting file {args.in_file}, already got {already_processed} corrections, "
+              f"{len(inputs) - already_processed} left.")
+    inputs = inputs[already_processed:]
     total_runtime = 0
-    for i, ipt in enumerate(inputs):
-        while True:
-            try:
-                correction, runtime = correct_spelling(ipt)
-            except openai.error.RateLimitError:
-                print("Hit rate limit, trying again in 5s")
-                time.sleep(5)
-                continue
-            except openai.error.OpenAIError as e:
-                print(f"OpenAI exception: {e}")
-                return
+    with open(args.out_file, "a" if args.resume else "w", encoding="utf8", buffering=1) as of:
+        for i, ipt in enumerate(inputs):
+            while True:
+                try:
+                    correction, runtime = correct_spelling(ipt)
+                except openai.error.RateLimitError:
+                    print("Hit rate limit, trying again in 5s")
+                    time.sleep(5)
+                    continue
+                except openai.error.OpenAIError as e:
+                    print(f"OpenAI exception: {e}")
+                    return
 
-            outputs.append(correction)
-            total_runtime += runtime
-            break
-        print(f"Progress: {i + 1}/{len(inputs)}")
-    print(f"Finished correcting {len(inputs)} inputs. "
-          f"Total runtime: {total_runtime:.2f}s ({total_runtime / len(inputs):.2f}s/seq)")
-    save_text_file(args.out_file, outputs)
+                of.write(" ".join(correction.split()) + "\n")
+                total_runtime += runtime
+                break
+            print(f"Progress: {i + 1}/{len(inputs)}")
+        print(f"Finished correcting {len(inputs)} inputs. "
+              f"Total runtime: {total_runtime:.2f}s ({total_runtime / len(inputs):.2f}s/seq)")
 
 
 if __name__ == "__main__":
