@@ -59,6 +59,7 @@ def run(args: argparse.Namespace) -> None:
         print(f"Out file at {args.out_file} already exists")
         return
 
+    start_overall = time.perf_counter()
     inputs = load_text_file(args.in_file)
     print(f"Got {len(inputs)} inputs to correct")
     already_processed = line_count(args.out_file) if os.path.exists(args.out_file) and args.resume else 0
@@ -92,8 +93,13 @@ def run(args: argparse.Namespace) -> None:
                 total_runtime += end - start
                 break
             print(f"Progress: {i + 1}/{len(inputs)}")
-        print(f"Finished correcting {len(inputs)} inputs. "
-              f"Total runtime: {total_runtime:.2f}s ({total_runtime / len(inputs):.2f}s/seq)")
+
+    end_overall = time.perf_counter()
+    print(
+        f"Finished correcting {len(inputs)} inputs\n"
+        f"Total runtime: {total_runtime:.2f}s ({total_runtime / len(inputs):.2f}s/seq)\n"
+        f"Total runtime + waiting because of rate limiting: {end_overall - start_overall:.2f}s"
+    )
 
 
 if __name__ == "__main__":
