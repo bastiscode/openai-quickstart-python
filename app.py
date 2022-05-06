@@ -10,13 +10,13 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-def correct_spelling(text_to_correct: str, temperature: float) -> str:
+def correct_spelling(text_to_correct: str, instruction: str, temperature: float) -> str:
     # fix multiple whitespaces
     text_to_correct = " ".join(text_to_correct.split())
     response = openai.Edit.create(
         engine="text-davinci-edit-001",
         input=text_to_correct,
-        instruction="Fix the spelling mistakes",
+        instruction=instruction,
         temperature=temperature
     )
     correction = " ".join(response["choices"][0]["text"].split())
@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--text", type=str, default=None)
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--instruction", type=str, default="Fix the spelling mistakes")
     parser.add_argument("--temperature", type=float, default=0)
     return parser.parse_args()
 
@@ -50,7 +51,9 @@ def line_count(path: str) -> int:
 
 def run(args: argparse.Namespace) -> None:
     if args.text is not None:
-        correction, runtime = correct_spelling(args.text, 0)
+        start = time.perf_counter()
+        correction = correct_spelling(args.text, args.instruction, args.temperature)
+        runtime = time.perf_counter() - start
         print(f"Input text:\t{args.text}\nCorrection:\t{correction}\nRuntime:\t{runtime:.2f}s")
         return
 
@@ -73,7 +76,7 @@ def run(args: argparse.Namespace) -> None:
             while True:
                 start = time.perf_counter()
                 try:
-                    correction = correct_spelling(ipt, args.temperature)
+                    correction = correct_spelling(ipt, args.instruction, args.temperature)
                 except openai.error.RateLimitError:
                     print("Hit rate limit, trying again in 5s")
                     time.sleep(5)
